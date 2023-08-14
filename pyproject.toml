@@ -10,7 +10,7 @@ dependencies = [
 requires-python = ">=3.8"
 readme = "README.md"
 license = {text = "MIT"}
-keywords = ["CKAN", "restricted", "access", "authorization"]
+keywords = ["CKAN", "restricted", "access", "authorization", "envidat"]
 classifiers = [
     "Topic :: Utilities",
     "Programming Language :: Python",
