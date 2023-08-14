@@ -1,424 +1,233 @@
-"""Logic for the API."""
+"""Logic for plugin actions."""
 
-import logging
+import json
+from logging import getLogger
 
-from ckan.common import config
-from ckan.lib import mailer
-from ckan.lib.api_token import decode as successful_jwt_decode
-from ckan.lib.navl.dictization_functions import DataError
-from ckan.lib.redis import connect_to_redis
-from ckan.logic import side_effect_free
+import ckan.authz as authz
+from ckan.common import _
+from ckan.logic import (
+    NotFound,
+    get_or_bust,
+    side_effect_free,
+)
+from ckan.logic.action.get import (
+    package_search,
+    package_show,
+    resource_search,
+    resource_view_list,
+)
 from ckan.plugins import toolkit
+from ckanext_restricted_api.mailer import send_access_request_email
 
-# from ckan.types import Context, DataDict
-from requests import get as get_url
-from sqlalchemy.exc import InternalError as SQLAlchemyError
+from ckanext.resticted_api.util import (
+    check_user_resource_access,
+    get_restricted_dict,
+    get_username_from_context,
+)
+from ckanext.restricted_api import auth
 
-from ckanext.restricted_api import util
-from ckanext.restricted_api.mailer import send_user_reset_key, send_welcome_email
-
-log = logging.getLogger(__name__)
+log = getLogger(__name__)
 
 
-def request_reset_key(
-    context,  #: Context,
-    data_dict,  #: DataDict,
-):
-    """Request a reset key (login token) to be sent by email.
-
-    Args:
-        context (Context): CKAN context, including user.
-        data_dict (DataDict):
-            - email (str): Email of user.
-
-    Returns:
-        dict: {message: 'success'}
-    """
-    log.debug(f"Request reset key with params: {data_dict}")
-
-    if toolkit.c.user:
-        # Don't offer the reset if already logged in
-        log.warning("User already logged in")
-        raise toolkit.NotAuthorized("user already logged in, logout first")
-
-    # Check email is present in POST data
-    if not (email := data_dict.get("email")):
-        raise toolkit.ValidationError({"email": "missing email"})
-
-    # Check email is valid
-    email = email.lower()
-    if not util.email_is_valid(email):
-        raise toolkit.ValidationError({"email": "invalid email"})
-
-    # control attempts (exception raised on fail)
-    util.check_reset_attempts(email.encode())
-
-    # get existing user from email
-    user = util.get_user_from_email(email)
-    # log.debug(f'USER is {str(user)})
-
-    if not user:
-        # A user with this email address doesn't yet exist in CKAN, so create one.
-        new_user_email = _create_user(email)
-        log.debug(f"Created user {str(email)}")
-        user = util.get_user_from_email(new_user_email)
-        send_welcome_email(user)
-
-    if user:
-        # make sure is not deleted
-        if user.state == "deleted":
-            raise toolkit.ValidationError(
-                {"user": f"User with email {email} was deleted already. Contact Admin."}
-            )
-        try:
-            send_user_reset_key(user)
-
-        except mailer.MailerException as e:
-            log.error(f"Could not send token link: {str(e)}")
-            raise mailer.MailerException from e(
-                f"Could not send token link by mail: {str(e)}"
-            )
-
+@side_effect_free
+def restricted_resource_view_list(context, data_dict):
+    """Add restriction to resource_view_list."""
+    model = context["model"]
+    id = get_or_bust(data_dict, "id")
+    resource = model.Resource.get(id)
+    if not resource:
+        raise NotFound
+    authorized = auth.restricted_resource_show(
+        context, {"id": resource.get("id"), "resource": resource}
+    ).get("success", False)
+    if not authorized:
+        return []
     else:
-        raise toolkit.ValidationError from None(
-            {"user": "cannot retrieve or create user with given email"}
-        )
-
-    return {"message": "success"}
+        return resource_view_list(context, data_dict)
 
 
-def _create_user(email):
-    """Create a new user and send welcome email.
+@side_effect_free
+def restricted_package_show(context, data_dict):
+    """Add restriction to package_show."""
+    package_metadata = package_show(context, data_dict)
 
-    Returns the user email.
-    """
-    # first check temporary quota
-    util.check_new_user_quota()
+    # Ensure user who can edit can see the resource
+    if authz.is_authorized("package_update", context, package_metadata).get(
+        "success", False
+    ):
+        return package_metadata
 
-    try:
-        data_dict = {
-            "email": email.lower(),
-            "fullname": util.generate_user_fullname(email),
-            "name": util.get_new_username(email),
-            "password": util.generate_password(),
-        }
-        user_dict = toolkit.get_action("user_create")(
-            context={"ignore_auth": True}, data_dict=data_dict
-        )
-    except SQLAlchemyError as error:
-        exception_message = f"{error}"
-        log.error(f"Failed to create user: {error}")
-        if exception_message.find("quota") >= 0:
-            raise DataError from error(
-                "Error creating a new user, daily new user quota exceeded"
-            )
+    # Custom authorization
+    if isinstance(package_metadata, dict):
+        restricted_package_metadata = dict(package_metadata)
+    else:
+        restricted_package_metadata = dict(package_metadata.for_json())
+
+    # restricted_package_metadata['resources'] = _restricted_resource_list_url(
+    #     context, restricted_package_metadata.get('resources', []))
+    restricted_package_metadata["resources"] = _restricted_resource_list_hide_fields(
+        context, restricted_package_metadata.get("resources", [])
+    )
+
+    return restricted_package_metadata
+
+
+@side_effect_free
+def restricted_resource_search(context, data_dict):
+    """Add restriction to resource_search."""
+    resource_search_result = resource_search(context, data_dict)
+
+    restricted_resource_search_result = {}
+
+    for key, value in resource_search_result.items():
+        if key == "results":
+            # restricted_resource_search_result[key] = \
+            #     _restricted_resource_list_url(context, value)
+            restricted_resource_search_result[
+                key
+            ] = _restricted_resource_list_hide_fields(context, value)
         else:
-            raise DataError from error("Internal error creating a new user")
-    except Exception as e:
-        log.error(e)
-        log.error("Error creating new user")
-        raise Exception from e
+            restricted_resource_search_result[key] = value
 
-    return user_dict.get("email")
-
-
-def request_api_token(
-    context,  #: Context,
-    data_dict,  #: DataDict,
-):
-    """Get API token for a user, if reset key valid.
-
-    Args:
-        context (Context): CKAN context, including user.
-        data_dict (DataDict):
-            - email (str): Email of user.
-            - key (str): Reset key of user (from email after request_reset_key).
-
-    Returns:
-        dict: CKAN API token for user {'token': token_value}.
-    """
-    log.debug(f"Requesting API token with params: {data_dict}")
-
-    if toolkit.c.user:
-        # Don't offer the reset if already logged in
-        log.warning("User already logged in")
-        raise toolkit.NotAuthorized("user already logged in, logout first")
-
-    # Check if parameters are present
-    if not (email := data_dict.get("email")):
-        raise toolkit.ValidationError({"email": "missing email"})
-    if not (orig_key := data_dict.get("key")):
-        raise toolkit.ValidationError({"key": "missing token"})
-    # Check email valid
-    email = email.lower()
-    if not util.email_is_valid(email):
-        raise toolkit.ValidationError({"email": "invalid email"})
-    # Set user
-    if not (user := util.get_user_from_email(email)):
-        raise toolkit.ValidationError(
-            {"email": "email does not correspond to a registered user"}
-        )
-
-    # Validate key
-    if len(orig_key) <= 32 and not orig_key.startswith("b'"):
-        key = f"b'{orig_key}'"
-    else:
-        key = orig_key
-
-    user_id = user.id
-    log.debug(f"User id: {user_id} ({orig_key}) => {key}")
-
-    # Check provided key is valid
-    if not user or not mailer.verify_reset_link(user, key):
-        raise toolkit.ValidationError({"key": "token provided is not valid"})
-
-    # Recreate reset_key in db
-    mailer.create_reset_key(user)
-
-    # delete attempts from Redis
-    log.debug(f"Redis: reset attempts for {email}")
-    redis_conn = connect_to_redis()
-    redis_conn.delete(email)
-
-    expiry = int(config.get("expire_api_token.default_lifetime", 3))
-    units = int(config.get("expire_api_token.default_unit", 86400))
-    return util.renew_main_token(user_id, expiry, units)
-
-
-def request_api_token_azure_ad(
-    context,  #: Context,
-    data_dict,  #: DataDict,
-):
-    """Get API token for a user, if valid Azure AD token provided.
-
-    To be called from a custom frontend, using a Azure AD login flow.
-
-    Args:
-        context (Context): CKAN context, including user.
-        data_dict (DataDict):
-            - email (str): Email of user.
-            - token (token): Token generated by Azure AD from frontend.
-
-    Returns:
-        dict: CKAN API token for user {'token': token_value}.
-    """
-    log.debug(f"Requesting API token using Azure AD token params: {data_dict}")
-
-    # Check if parameters are present
-    if not (email := data_dict.get("email")):
-        raise toolkit.ValidationError({"email": "missing email"})
-    if not (token := data_dict.get("token")):
-        raise toolkit.ValidationError({"token": "missing token"})
-
-    # Check email valid
-    email = email.lower()
-    if not util.email_is_valid(email):
-        raise toolkit.ValidationError({"email": "invalid email"})
-
-    # Validate Azure AD token
-    try:
-        log.debug("Verifying JWT token")
-        response = get_url(
-            "https://graph.microsoft.com/v1.0/me", headers={"Authorization": token}
-        ).json()
-        log.debug(f"Returned response for verification: {response}")
-
-        azure_ad_email = response.get("mail", None)
-        if azure_ad_email != email:
-            raise toolkit.NotAuthorized from None(
-                "email from azure verification does not match email provided "
-                "from frontend app. verification failed"
-            )
-
-    except Exception as e:
-        log.error(e)
-        raise toolkit.ValidationError from e(
-            {"token": "unknown error while validating token with azure"}
-        )
-
-    # Check user exists, else create new user
-    if not (user := util.get_user_from_email(email)):
-        _create_user(email)
-        log.debug(f"Created user {str(email)}")
-        user = util.get_user_from_email(email)
-    # Get user id from database model
-    user_id = user.id
-
-    # delete attempts from Redis
-    log.debug(f"Redis: reset attempts for {email}")
-    redis_conn = connect_to_redis()
-    redis_conn.delete(email)
-
-    expiry = int(config.get("expire_api_token.default_lifetime", 3))
-    units = int(config.get("expire_api_token.default_unit", 86400))
-    return util.renew_main_token(user_id, expiry, units)
+    return restricted_resource_search_result
 
 
 @side_effect_free
-def revoke_api_token_no_auth(
-    context,  #: Context,
-    data_dict,  #: DataDict,
-):
-    """Revoke API token for a user, without requiring auth.
+def restricted_package_search(context, data_dict):
+    """Add restriction to package_search."""
+    package_search_result = package_search(context, data_dict)
 
-    Useful for when user API token has expired already, but they wish to check
-    if revokation is possible (i.e. during logout - revoke if possible).
+    restricted_package_search_result = {}
 
-    Args:
-        context (Context): CKAN context, including user.
-        data_dict (DataDict):
-            - token (str, optional): Value of API token to revoke.
+    package_show_context = context.copy()
+    package_show_context["with_capacity"] = False
 
-    Returns:
-        dict: {message: 'success'}
-    """
-    log.debug("Revoking API token if present.")
+    for key, value in package_search_result.items():
+        if key == "results":
+            restricted_package_search_result_list = []
+            for package in value:
+                restricted_package_search_result_list.append(
+                    restricted_package_show(
+                        package_show_context, {"id": package.get("id")}
+                    )
+                )
+            restricted_package_search_result[
+                key
+            ] = restricted_package_search_result_list
+        else:
+            restricted_package_search_result[key] = value
 
-    # User cookie / logged in
-    if (user := context.get("user", "")) != "":
-        log.debug("User ID extracted from context user key")
-        user_id = user
-    elif user := context.get("auth_user_obj", None):
-        log.debug("User ID extracted from context auth_user_obj key")
-        user_id = user.id
-
-    else:
-        # Attempt revoke provided token via POST
-        if not (api_token := data_dict.get("token")):
-            log.warning("Attempting to revoke API token, but none provided")
-            raise toolkit.ValidationError({"token": "missing api token to revoke"})
-
-        if not successful_jwt_decode(api_token):
-            raise toolkit.ValidationError(
-                {"token": "failed to decode token, not valid"}
-            )
-
-        try:
-            toolkit.get_action("api_token_revoke")(
-                context={"ignore_auth": True},
-                data_dict={
-                    "token": api_token,
-                },
-            )
-            return {"message": "success"}
-
-        except Exception as e:
-            log.warning(f"Could not delete API token due to: {e}")
-            return {"message": "failed"}
-
-    # Renew with 1 second expiry
-    api_token = util.renew_main_token(user_id, 1, 60)
-    if api_token:
-        return {"message": "success"}
-
-    return {"message": "failed"}
+    return restricted_package_search_result
 
 
 @side_effect_free
-def get_current_user_and_renew_api_token(
+def restricted_check_access(context, data_dict):
+    """Check access for a restricted resource."""
+    package_id = data_dict.get("package_id", False)
+    resource_id = data_dict.get("resource_id", False)
+
+    user_name = get_username_from_context(context)
+
+    if not package_id:
+        raise toolkit.ValidationError("Missing package_id")
+    if not resource_id:
+        raise toolkit.ValidationError("Missing resource_id")
+
+    log.debug("action.restricted_check_access: user_name = " + str(user_name))
+
+    log.debug("checking package " + str(package_id))
+    package_dict = toolkit.get_action("package_show")(
+        dict(context, return_type="dict"), {"id": package_id}
+    )
+    log.debug("checking resource")
+    resource_dict = toolkit.get_action("resource_show")(
+        dict(context, return_type="dict"), {"id": resource_id}
+    )
+
+    return check_user_resource_access(user_name, resource_dict, package_dict)
+
+
+def _restricted_resource_list_hide_fields(context, resource_list):
+    """Hide fields if resource is restricted."""
+    restricted_resources_list = []
+    for resource in resource_list:
+        # copy original resource
+        restricted_resource = dict(resource)
+
+        # get the restricted fields
+        restricted_dict = get_restricted_dict(restricted_resource)
+
+        # hide fields to unauthorized users
+        auth.restricted_resource_show(
+            context, {"id": resource.get("id"), "resource": resource}
+        ).get("success", False)
+
+        # hide other fields in restricted to everyone but dataset owner(s)
+        if not authz.is_authorized(
+            "package_update", context, {"id": resource.get("package_id")}
+        ).get("success"):
+            user_name = get_username_from_context(context)
+
+            # hide partially other allowed user_names (keep own)
+            allowed_users = []
+            for user in restricted_dict.get("allowed_users"):
+                if len(user.strip()) > 0:
+                    if user_name == user:
+                        allowed_users.append(user_name)
+                    else:
+                        allowed_users.append(user[0:3] + "*****" + user[-2:])
+
+            new_restricted = json.dumps(
+                {
+                    "level": restricted_dict.get("level"),
+                    "allowed_users": ",".join(allowed_users),
+                }
+            )
+            extras_restricted = resource.get("extras", {}).get("restricted", {})
+            if extras_restricted:
+                restricted_resource["extras"]["restricted"] = new_restricted
+
+            field_restricted_field = resource.get("restricted", {})
+            if field_restricted_field:
+                restricted_resource["restricted"] = new_restricted
+
+        restricted_resources_list += [restricted_resource]
+    return restricted_resources_list
+
+
+def restricted_request_access(
     context,  #: Context,
     data_dict,  #: DataDict,
 ):
-    """Return CKAN user and renew API token.
+    """Send access request email to resource admin/maintainer."""
+    log.debug(f"start function restricted_request_access, params: {data_dict}")
 
-    Uses the user_show core action to return the user, and renews the main API token.
+    # Check if parameters are present
+    if not (resource_id := data_dict.get("resource_id")):
+        raise toolkit.ValidationError({"resource_id": "missing resource_id"})
 
-    Returns:
-        dict: {user: ckan_user_obj, token: api_token}
-    """
-    log.debug("start function get_current_user_and_renew_api_token")
-
+    # Get current user (for authentication only)
     if (user := context.get("user", "")) != "":
         log.debug("User ID extracted from context user key")
-        user_id = user
+        request_user_id = user
     elif user := context.get("auth_user_obj", None):
         log.debug("User ID extracted from context auth_user_obj key")
-        user_id = user.id
+        request_user_id = user.id
     else:
         return {
             "message": "API token is invalid or missing from Authorization header",
         }
 
+    package_id = data_dict.get("package_id")
+    # Get package associated with resource
     try:
-        log.info(f"Getting user details with user_id: {user_id}")
-        user = toolkit.get_action("user_show")(
-            data_dict={
-                "id": user_id,
-            },
-        )
+        package = toolkit.get_action("package_show")(context, {"id": package_id})
+    except toolkit.ObjectNotFound:
+        toolkit.abort(404, _("Package not found"))
+    except Exception:
+        toolkit.abort(404, _("Exception retrieving package to send mail"))
 
-    except Exception as e:
-        log.error(str(e))
-        log.warning(f"Could not find a user for ID: {user_id}")
-        return {"message": f"could not find a user for id: {user_id}"}
+    # Get resource maintainer
+    resource_admin = package.get("maintainer").get("email")
 
-    if _check_token_valid(context, data_dict):
-        expiry = config.get("expire_api_token.default_lifetime", 3)
-        units = config.get("expire_api_token.default_unit", 86400)
-        token_json = util.renew_main_token(user_id, expiry, units)
-        return {
-            "user": user,
-            "token": token_json.get("token"),
-        }
-
-    return {"message": "failed"}
-
-
-@side_effect_free
-def check_token_valid(
-    context,  #: Context,
-    data_dict,  #: DataDict,
-):
-    """Check if the token is valid and user is authenticated.
-
-    Allows for verifying user auth without renewing token.
-    Useful for verifying a token from microservices.
-
-    Returns:
-        bool: True if valid, False if not.
-    """
-    if _check_token_valid(context, data_dict):
-        return True
-
-    return False
-
-
-def _check_token_valid(
-    context,  #: Context,
-    data_dict,  #: DataDict,
-):
-    """Verify the JWT API token.
-
-    Returns:
-        bool: True if valid, False if not.
-    """
-    log.debug("start function _check_token_valid")
-
-    if (user_id := context.get("user", "")) != "":
-        log.debug("User ID extracted from context user key")
-    elif user_obj := context.get("auth_user_obj", None):
-        log.debug("User ID extracted from context auth_user_obj key")
-        user_id = user_obj.id
-    else:
-        return {
-            "message": "API token is invalid or missing from Authorization header",
-        }
-
-    user = None
-    try:
-        log.info(f"Getting user details with user_id: {user_id}")
-        user = toolkit.get_action("user_show")(
-            data_dict={
-                "id": user_id,
-            },
-        )
-
-    except Exception as e:
-        log.error(str(e))
-        log.warning(f"Could not find a user for ID: {user_id}")
-        return {"message": f"could not find a user for id: {user_id}"}
-
-    if user:
-        return True
-
-    return False
+    send_access_request_email(resource_id, resource_admin, request_user_id)

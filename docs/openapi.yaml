@@ -1,0 +1,294 @@
+openapi: 3.1.0
+info:
+  title: ckanext-passwordless_api
+  description: Extension to allow paswordless login to the CKAN API.
+  version: 1.1.2
+paths:
+  /passwordless_request_reset_key:
+    post:
+      summary: Email Key
+      description: Request a reset key (login token) to be sent by email.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+      responses:
+        "200":
+          description: Send reset key to user via email.
+          content:
+            application/json:
+              examples:
+                success:
+                  value:
+                    {
+                      "help": "http://localhost:8989/api/3/action/help_show?name=passwordless_request_reset_key",
+                      "success": true,
+                      "result": { "message": "success" },
+                    }
+        "400":
+          description: Parameter provided without value.
+          content:
+            text/plain:
+              examples:
+                missing:
+                  value: "Bad request - JSON Error: Error decoding JSON data. Error: JSONDecodeError('Expecting value: line 1 column 1 (char 0)') JSON data extracted from the request: {}"
+        "409":
+          description: Invalid or missing parameter.
+          content:
+            application/json:
+              examples:
+                fail:
+                  value:
+                    {
+                      "help": "http://localhost:8989/api/3/action/help_show?name=passwordless_request_reset_key",
+                      "error":
+                        {
+                          "email": "invalid email",
+                          "__type": "Validation Error",
+                        },
+                      "success": false,
+                    }
+
+  /passwordless_request_api_token:
+    post:
+      summary: Request API Token
+      description: Get API token for a user, if reset key valid.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                key:
+                  type: string
+      responses:
+        "200":
+          description: Returns API token for user.
+          content:
+            application/json:
+              examples:
+                success:
+                  value:
+                    {
+                      "help": "http://localhost:8989/api/3/action/help_show?name=passwordless_request_api_token",
+                      "success": true,
+                      "result": { "token": "API_TOKEN" },
+                    }
+        "400":
+          description: Parameter provided without value.
+          content:
+            text/plain:
+              examples:
+                missing:
+                  value: "Bad request - JSON Error: Error decoding JSON data. Error: JSONDecodeError('Expecting value: line 1 column 1 (char 0)') JSON data extracted from the request: {}"
+        "409":
+          description: Invalid or missing parameter.
+          content:
+            application/json:
+              examples:
+                fail:
+                  value:
+                    {
+                      "help": "http://localhost:8989/api/3/action/help_show?name=passwordless_request_api_token",
+                      "error":
+                        {
+                          "email": "missing email",
+                          "__type": "Validation Error",
+                        },
+                      "success": false,
+                    }
+
+  /passwordless_request_api_token_azure_ad:
+    post:
+      summary: Request API Token (Azure)
+      description: Get API token for a user, if Azure AD auth code valid.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                token:
+                  type: string
+      responses:
+        "200":
+          description: Returns API token for user.
+          content:
+            application/json:
+              examples:
+                success:
+                  value:
+                    {
+                      "help": "http://localhost:8989/api/3/action/help_show?name=passwordless_request_api_token",
+                      "success": true,
+                      "result": { "token": "API_TOKEN" },
+                    }
+        "400":
+          description: Parameter provided without value.
+          content:
+            text/plain:
+              examples:
+                missing:
+                  value: "Bad request - JSON Error: Error decoding JSON data. Error: JSONDecodeError('Expecting value: line 1 column 1 (char 0)') JSON data extracted from the request: {}"
+        "409":
+          description: Invalid or missing parameter.
+          content:
+            application/json:
+              examples:
+                fail:
+                  value:
+                    {
+                      "help": "http://localhost:8989/api/3/action/help_show?name=passwordless_request_api_token",
+                      "error":
+                        {
+                          "email": "missing email",
+                          "__type": "Validation Error",
+                        },
+                      "success": false,
+                    }
+
+  /passwordless_revoke_api_token(cookie):
+    get:
+      summary: Revoke API token
+      description: If logged in, revoke API token used during endpoint call.
+      responses:
+        "200":
+          description: Revokes API key if available, else silently fails.
+          content:
+            application/json:
+              examples:
+                success:
+                  value:
+                    {
+                      "help": "http://localhost:8989/api/3/action/help_show?name=passwordless_revoke_api_token",
+                      "success": true,
+                      "result": { "message": "success" },
+                    }
+                fail:
+                  value:
+                    {
+                      "help": "http://localhost:8989/api/3/action/help_show?name=passwordless_revoke_api_token",
+                      "success": true,
+                      "result": { "message": "failed" },
+                    }
+
+  /passwordless_revoke_api_token:
+    post:
+      summary: Revoke API token
+      description: Revoke API token for a user, without requiring auth.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+      responses:
+        "200":
+          description: Revokes API token, if present.
+          content:
+            application/json:
+              examples:
+                success:
+                  value:
+                    {
+                      "help": "http://localhost:8989/api/3/action/help_show?name=passwordless_revoke_api_token",
+                      "success": true,
+                      "result": { "message": "success" },
+                    }
+        "400":
+          description: Parameter provided without value.
+          content:
+            text/plain:
+              examples:
+                missing:
+                  value: "Bad request - JSON Error: Error decoding JSON data. Error: JSONDecodeError('Expecting value: line 1 column 1 (char 0)') JSON data extracted from the request: {}"
+        "409":
+          description: Invalid or missing parameter.
+          content:
+            application/json:
+              examples:
+                fail:
+                  value:
+                    {
+                      "help": "http://localhost:8989/api/3/action/help_show?name=passwordless_revoke_api_token",
+                      "error":
+                        {
+                          "token": "failed to decode token, not valid",
+                          "__type": "Validation Error",
+                        },
+                      "success": false,
+                    }
+
+  /passwordless_get_user:
+    get:
+      summary: Get user
+      description: Get current user details & renew their API token.
+      responses:
+        "200":
+          description: Returns user details and renews API token.
+          content:
+            application/json:
+              examples:
+                success:
+                  value:
+                    {
+                      "help": "http://localhost:8989/api/3/action/help_show?name=passwordless_get_user",
+                      "success": true,
+                      "result":
+                        {
+                          "user":
+                            {
+                              "id": "USER_ID",
+                              "name": "USERNAME",
+                              "fullname": "USER_FULLNAME",
+                              "created": "2021-11-11T11:52:06.681420",
+                              "about": null,
+                              "activity_streams_email_notifications": false,
+                              "sysadmin": false,
+                              "state": "active",
+                              "image_url": null,
+                              "display_name": "USER_DISPLAY_NAME",
+                              "email_hash": "EMAIL_HASH",
+                              "number_created_packages": 1,
+                              "apikey": "USER_API_KEY(Deprecated)",
+                              "email": "USER_EMAIL",
+                              "image_display_url": null,
+                            },
+                          "token": "NEW_API_TOKEN",
+                        },
+                    }
+                fail:
+                  value:
+                    {
+                      "success": true,
+                      "message": "API token is invalid or missing from Authorization header",
+                    }
+
+  /introspect:
+    get:
+      summary: Validate token
+      description: Validate the current users API token.
+      responses:
+        "200":
+          description: True or False for is API token is valid.
+          content:
+            application/json:
+              examples:
+                success:
+                  value: true
+                fail:
+                  value: false

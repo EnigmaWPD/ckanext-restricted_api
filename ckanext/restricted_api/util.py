@@ -1,27 +1,13 @@
-"""Separated helper utils to keep logic file clean."""
+"""Helper functions for the plugin."""
 
-import logging
-from datetime import datetime, timedelta
-from json import loads as load_json
-from re import match as regexmatch
-from uuid import uuid4
 
-from ckan import logic
-from ckan.common import config
-from ckan.lib.redis import connect_to_redis
+import json
+from logging import getLogger
+
+import ckan.logic as logic
 from ckan.model import User
-from ckan.plugins import toolkit
-from dateutil import parser as dateparser
 
-log = logging.getLogger(__name__)
-
-
-def email_is_valid(email: str):
-    """Match an email against regex for validation."""
-    if email:
-        if regexmatch(r"^[A-Za-z0-9\.\+_-]+@[A-Za-z0-9\._-]+\.[a-zA-Z]*$", email):
-            return True
-    return False
+log = getLogger(__name__)
 
 
 def get_user_from_email(email: str):
@@ -50,184 +36,116 @@ def get_user_from_email(email: str):
     return None
 
 
-def get_new_username(email: str):
-    """Generate a new username and check does not exist."""
-    email = email.lower()
+def get_username_from_context(context):
+    """Get username or user id from context."""
+    if (user := context.get("user", "")) != "":
+        log.debug("User ID extracted from context user key")
+        # User ID
+        user_name = user
+    elif user := context.get("auth_user_obj", None):
+        log.debug("User ID extracted from context auth_user_obj key")
+        # User Name
+        user_name = user.name
 
-    anonymous_usernames = bool(
-        load_json(config.get("restricted_api.anonymous_usernames", "false"))
-    )
-    domain_exceptions = config.get("restricted_api.anonymous_domain_exceptions", "")
-
-    username = (
-        generate_user_name(email)
-        if not anonymous_usernames
-        else (
-            generate_user_name(email)
-            if not domain_exceptions or email.endswith(tuple(domain_exceptions))
-            else str(uuid4())
-        )
-    )
-
-    offset = 0
-    while offset < 100000:
-        try:
-            toolkit.get_action("user_show")(
-                context={"ignore_auth": True},
-                data_dict={"id": username},
-            )
-            log.debug(f"User creation: {username} exists. Attempting next...")
-        except logic.NotFound:
-            log.debug(f"User creation: {username} does not exist. Creating...")
-            return username
-        offset += 1
-        username = generate_user_name(email, offset)
-    return None
+    return user_name
 
 
-def generate_user_name(email: str, offset: int = 0):
-    """Generate a user name for the given email address.
+def get_restricted_dict(resource_dict):
+    """Get the resource restriction info."""
+    restricted_dict = {"level": "public", "allowed_users": []}
 
-    Offset should be unique.
-    """
-    # unique_num = datetime.datetime.now().strftime('%Y%m%d%H%M%S%f')
-    max_len = 99
-    username = email.lower().replace("@", "-").replace(".", "_")[0:max_len]
+    # the ckan plugins ckanext-scheming and ckanext-composite
+    # change the structure of the resource dict and the nature of how
+    # to access our restricted field values
+    if resource_dict:
+        # the dict might exist as a child inside the extras dict
+        extras = resource_dict.get("extras", {})
+        # or the dict might exist as a direct descendant of the resource dict
+        restricted = resource_dict.get("restricted", extras.get("restricted", {}))
+        if not isinstance(restricted, dict):
+            # if the restricted property does exist, but not as a dict,
+            # we may need to parse it as a JSON string to gain access to the values.
+            # as is the case when making composite fields
+            try:
+                restricted = json.loads(restricted)
+            except ValueError:
+                restricted = {}
 
-    if offset > 0:
-        str_offset = "_" + str(offset)
-        username = username[: (max_len - len(str_offset))]
-        username += str_offset
-    return username
+        if restricted:
+            restricted_level = restricted.get("level", "public")
+            allowed_users = restricted.get("allowed_users", "")
+            if not isinstance(allowed_users, list):
+                allowed_users = allowed_users.split(",")
+            restricted_dict = {
+                "level": restricted_level,
+                "allowed_users": allowed_users,
+            }
+
+    return restricted_dict
 
 
-def generate_user_fullname(email: str):
-    """Generate fullname from a given email address."""
-    # FIXME: Generate a better user name, based on the email, but still making
-    # sure it's unique.
-    # return str(uuid4())
-    return email.split("@")[0].replace(".", " ").title()
+def check_user_resource_access(user, resource_dict, package_dict):
+    """Chec if user has access to restricted resource."""
+    restricted_dict = get_restricted_dict(resource_dict)
 
+    restricted_level = restricted_dict.get("level", "public")
+    allowed_users = restricted_dict.get("allowed_users", [])
 
-def generate_password():
-    """Generate a random password."""
-    # FIXME: Replace this with a better way of generating passwords, or enable
-    # users without passwords in CKAN.
-    return str(uuid4())
+    # Public resources (DEFAULT)
+    if not restricted_level or restricted_level == "public":
+        return {"success": True}
 
-
-def renew_main_token(user_id: str, expiry: int, units: int):
-    """Revoke and re-create API token named 'main' for a user.
-
-    Args:
-        user_id (str): User ID.
-        expiry (int): Token expires in.
-        units (int): Units for expiration time.
-
-    Returns:
-        str: API token for user.
-    """
-    log.debug(f"Renewing API token 'main' for user id: {user_id}")
-
-    if isinstance(user_id, str):
-        # check if there is one already and delete it
-        data_dict = {"user": user_id}
-        api_tokens = toolkit.get_action("api_token_list")(
-            context={"ignore_auth": True}, data_dict=data_dict
-        )
-        log.debug(
-            f"User ID {user_id}) API tokens: "
-            f"{', '.join([k['name'] for k in api_tokens])}"
-        )
-        for token in api_tokens:
-            if token.get("name") == "main":
-                log.debug(f"Revoking API token {token}")
-                toolkit.get_action("api_token_revoke")(
-                    context={"ignore_auth": True}, data_dict={"jti": token["id"]}
-                )
-
-        log.debug("Generating API token for user with expiry: {}")
-        new_api_key = toolkit.get_action("api_token_create")(
-            context={"ignore_auth": True},
-            data_dict={
-                "user": user_id,
-                "name": "main",
-                "expires_in": expiry,
-                "unit": units,
-            },
-        )
-        log.debug(f"New API key: {new_api_key}")
-        return new_api_key
+    # Registered user
+    if not user:
+        return {
+            "success": False,
+            "msg": "Resource access restricted to registered users",
+        }
     else:
-        return None
+        if restricted_level == "registered" or not restricted_level:
+            return {"success": True}
 
+    # Since we have a user, check if it is in the allowed list
+    if user in allowed_users:
+        return {"success": True}
+    elif restricted_level == "only_allowed_users":
+        return {
+            "success": False,
+            "msg": "Resource access restricted to allowed users only",
+        }
 
-def check_reset_attempts(email: str):
-    """Check if token reset limit exceeded by user."""
-    redis_conn = connect_to_redis()
-    if email not in redis_conn.keys():
-        log.debug(f"Redis: first login attempt for {email}")
-        redis_conn.hmset(email, {"attempts": 1, "latest": datetime.now().isoformat()})
-    else:
-        base = 3
-        attempts = int(redis_conn.hmget(email, "attempts")[0])
-        latest = dateparser.parse(redis_conn.hmget(email, "latest")[0])
+    # Get organization list
+    user_organization_dict = {}
 
-        waiting_seconds = base**attempts
-        limit_date = latest + timedelta(seconds=waiting_seconds)
+    context = {"user": user}
+    data_dict = {"permission": "read"}
 
-        log.debug(
-            f"Redis: wait {waiting_seconds} seconds after {attempts} attempts "
-            f"=> after date {limit_date.isoformat()}"
-        )
+    for org in logic.get_action("organization_list_for_user")(context, data_dict):
+        name = org.get("name", "")
+        id = org.get("id", "")
+        if name and id:
+            user_organization_dict[id] = name
 
-        if limit_date > datetime.now():
-            msg = (
-                "User should wait "
-                f"{int((limit_date - datetime.now()).total_seconds())} "
-                f"seconds until {limit_date.isoformat()} for a new token request"
-            )
-            raise logic.ValidationError({"user": msg})
-        else:
-            # increase counter
-            redis_conn.hmset(
-                email, {"attempts": attempts + 1, "latest": datetime.now().isoformat()}
-            )
+    # Any Organization Members (Trusted Users)
+    if not user_organization_dict:
+        return {
+            "success": False,
+            "msg": "Resource access restricted to members of an organization",
+        }
 
+    if restricted_level == "any_organization":
+        return {"success": True}
 
-def check_new_user_quota():
-    """Check if signup limit exceeded by user."""
-    redis_conn = connect_to_redis()
-    new_users_list = "new_latest_users"
-    if "new_latest_users" not in redis_conn.keys():
-        redis_conn.lpush(new_users_list, datetime.now().isoformat())
-    else:
-        # TODO: read this rom config
-        max_new_users = 10
-        period = 60 * 10
-        begin_date = datetime.now() - timedelta(seconds=period)
+    pkg_organization_id = package_dict.get("owner_org", "")
 
-        count = 0
-        elements_to_remove = []
+    # Same Organization Members
+    if restricted_level == "same_organization":
+        if pkg_organization_id in user_organization_dict.keys():
+            return {"success": True}
 
-        for i in range(0, redis_conn.llen(new_users_list)):
-            value = redis_conn.lindex(new_users_list, i)
-            new_user_creation_date = dateparser.parse(value)
-            if new_user_creation_date >= begin_date:
-                count += 1
-            else:
-                elements_to_remove += [value]
-
-        for value in elements_to_remove:
-            redis_conn.lrem(new_users_list, value)
-
-        if count >= max_new_users:
-            log.error(f"New user temporary quota exceeded. Count: {count}")
-            msg = (
-                f"New user temporary quota exceeded, wait {period / 60} "
-                "minutes for a new request."
-            )
-            raise logic.ValidationError({"user": msg})
-        else:
-            # add new user creation
-            redis_conn.lpush(new_users_list, datetime.now().isoformat())
+    return {
+        "success": False,
+        "msg": (
+            "Resource access restricted to same " "organization ({}) members"
+        ).format(pkg_organization_id),
+    }
