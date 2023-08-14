@@ -58,8 +58,6 @@ TBC
 
 ## Endpoints
 
-TBC
-
 **POST**
 
 **GET**
