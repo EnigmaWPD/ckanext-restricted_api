@@ -1,7 +1,7 @@
 """Util to send emails."""
 
 import json
-import logging
+from logging import getLogger
 
 from ckan.common import config
 from ckan.lib import mailer
@@ -9,7 +9,7 @@ from ckan.lib.base import render
 from ckan.plugin import toolkit
 from ckanext_restricted.util import get_user_from_email
 
-log = logging.getLogger(__name__)
+log = getLogger(__name__)
 
 
 def restricted_notify_access_granted(previous_value, updated_resource):

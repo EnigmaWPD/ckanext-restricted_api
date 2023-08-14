@@ -1,6 +1,6 @@
 """Init plugin with CKAN interfaces."""
 
-import logging
+from logging import getLogger
 
 from ckan.plugins import SingletonPlugin, implements, interfaces, toolkit
 
@@ -15,7 +15,7 @@ from ckanext.restricted_api.logic import (
 )
 from ckanext.restricted_api.mailer import restricted_notify_access_granted
 
-log = logging.getLogger(__name__)
+log = getLogger(__name__)
 
 
 class RestrictedAPIPlugin(SingletonPlugin):
