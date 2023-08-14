@@ -17,7 +17,6 @@ from ckan.logic.action.get import (
     resource_view_list,
 )
 from ckan.plugins import toolkit
-from ckanext_restricted_api.mailer import send_access_request_email
 
 from ckanext.resticted_api.util import (
     check_user_resource_access,
@@ -25,6 +24,7 @@ from ckanext.resticted_api.util import (
     get_username_from_context,
 )
 from ckanext.restricted_api import auth
+from ckanext.restricted_api.mailer import send_access_request_email
 
 log = getLogger(__name__)
 
