@@ -18,13 +18,13 @@ from ckan.logic.action.get import (
 )
 from ckan.plugins import toolkit
 
-from ckanext.resticted_api.util import (
+from ckanext.restricted_api import auth
+from ckanext.restricted_api.mailer import send_access_request_email
+from ckanext.restricted_api.util import (
     check_user_resource_access,
     get_restricted_dict,
     get_username_from_context,
 )
-from ckanext.restricted_api import auth
-from ckanext.restricted_api.mailer import send_access_request_email
 
 log = getLogger(__name__)
 
