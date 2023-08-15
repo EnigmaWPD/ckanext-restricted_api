@@ -54,13 +54,11 @@ class RestrictedAPIPlugin(SingletonPlugin):
         }
 
     # IResourceController
-    def before_update(self, context, current, resource):
+    def before_resource_update(self, context, current, resource):
         """Hook before updating a resource."""
-        # CKAN 2.10: before_resource_update
         context["__restricted_previous_value"] = current.get("restricted")
 
-    def after_update(self, context, resource):
+    def after_resource_update(self, context, resource):
         """Hook after updating a resource."""
-        # CKAN 2.10:
         previous_value = context.get("__restricted_previous_value")
         restricted_notify_access_granted(previous_value, resource)
