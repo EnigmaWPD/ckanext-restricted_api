@@ -2,10 +2,12 @@
 
 
 import json
+import re
 from logging import getLogger
 
 import ckan.logic as logic
 from ckan.model import User
+from ckan.plugins import toolkit
 
 log = getLogger(__name__)
 
@@ -36,18 +38,53 @@ def get_user_from_email(email: str):
     return None
 
 
-def get_username_from_context(context):
-    """Get username or user id from context."""
+def is_valid_ip(ip_str):
+    """Check if string is a valid IP address.
+
+    Required as sometimes an IP is passed in the user context,
+    instead of a user ID (if the user is unauthenticated).
+    """
+    pattern = r"^(\d{1,3}\.){3}\d{1,3}$"
+    if re.match(pattern, ip_str):
+        octets = ip_str.split(".")
+        if all(0 <= int(octet) <= 255 for octet in octets):
+            return True
+    return False
+
+
+def get_user_id_from_context(context, username: bool = False):
+    """Get user id or username from context."""
     if (user := context.get("user", "")) != "":
+        if is_valid_ip(user):
+            log.debug(f"Unauthenticated access attempted from IP: {user}")
         log.debug("User ID extracted from context user key")
-        # User ID
-        user_name = user
+        user_id = user
     elif user := context.get("auth_user_obj", None):
         log.debug("User ID extracted from context auth_user_obj key")
-        # User Name
-        user_name = user.name
+        if username:
+            user_id = user.name
+        else:
+            user_id = user.id
+    else:
+        log.debug("User not present in context")
+        return None
 
-    return user_name
+    try:
+        log.info(f"Getting user details with user_id: {user_id}")
+        user = toolkit.get_action("user_show")(
+            data_dict={
+                "id": user_id,
+            },
+        )
+    except Exception:
+        log.warning(f"Could not find a user for ID: {user_id}")
+
+    return user_id
+
+
+def get_username_from_context(context):
+    """Get username from context."""
+    return get_user_id_from_context(context, username=True)
 
 
 def get_restricted_dict(resource_dict):
@@ -146,6 +183,7 @@ def check_user_resource_access(user, resource_dict, package_dict):
     return {
         "success": False,
         "msg": (
-            "Resource access restricted to same " "organization ({}) members"
-        ).format(pkg_organization_id),
+            "Resource access restricted to same "
+            "organization ({pkg_organization_id}) members"
+        ),
     }

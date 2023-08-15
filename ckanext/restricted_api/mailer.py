@@ -6,8 +6,9 @@ from logging import getLogger
 from ckan.common import config
 from ckan.lib import mailer
 from ckan.lib.base import render
-from ckan.plugin import toolkit
-from ckanext_restricted.util import get_user_from_email
+from ckan.plugins import toolkit
+
+from ckanext.restricted_api.util import get_user_from_email
 
 log = getLogger(__name__)
 

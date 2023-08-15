@@ -6,7 +6,7 @@ import ckan.logic as logic
 import ckan.logic.auth as logic_auth
 import ckan.plugins.toolkit as toolkit
 
-from ckanext.restricted_api.util import get_restricted_dict
+from ckanext.restricted_api.util import get_restricted_dict, get_username_from_context
 
 log = getLogger(__name__)
 
@@ -22,31 +22,8 @@ def restricted_resource_show(context, data_dict=None):
     if type(resource) is not dict:
         resource = resource.as_dict()
 
-    if (user := context.get("user", "")) != "":
-        log.debug("User ID extracted from context user key")
-        user_id = user
-    elif user := context.get("auth_user_obj", None):
-        log.debug("User ID extracted from context auth_user_obj key")
-        user_id = user.id
-    else:
-        return {
-            "message": "API token is invalid or missing from Authorization header",
-        }
-
-    try:
-        log.info(f"Getting user details with user_id: {user_id}")
-        user = toolkit.get_action("user_show")(
-            data_dict={
-                "id": user_id,
-            },
-        )
-        # Get user_name
-        user_name = user.name
-
-    except Exception as e:
-        log.error(str(e))
-        log.warning(f"Could not find a user for ID: {user_id}")
-        return {"message": f"could not find a user for id: {user_id}"}
+    # Get username from context
+    user_name = get_username_from_context(context)
 
     package = data_dict.get("package", {})
     if not package:
@@ -57,7 +34,7 @@ def restricted_resource_show(context, data_dict=None):
     return _restricted_check_user_resource_access(user_name, resource, package)
 
 
-def _restricted_check_user_resource_access(user, resource_dict, package_dict):
+def _restricted_check_user_resource_access(user_name, resource_dict, package_dict):
     """Check resource access using restricted info dict."""
     restricted_dict = get_restricted_dict(resource_dict)
 
@@ -69,19 +46,28 @@ def _restricted_check_user_resource_access(user, resource_dict, package_dict):
         return {"success": True}
 
     # Registered user
-    if not user:
+    if not user_name:
+        log.warning(
+            "Unauthenticated user attempted to access restricted resource ID: "
+            f"{resource_dict.get('id')}"
+        )
         return {
             "success": False,
             "msg": "Resource access restricted to registered users",
         }
     else:
-        if restricted_level == "registered" or not restricted_level:
+        # Only registered users can access
+        if restricted_level == "registered":
             return {"success": True}
 
     # Since we have a user, check if it is in the allowed list
-    if user in allowed_users:
+    if user_name in allowed_users:
         return {"success": True}
     elif restricted_level == "only_allowed_users":
+        log.debug(
+            f"{user_name} attempted and failed to access restricted "
+            f"resource ID: {resource_dict.get('id')}"
+        )
         return {
             "success": False,
             "msg": "Resource access restricted to allowed users only",
@@ -90,7 +76,7 @@ def _restricted_check_user_resource_access(user, resource_dict, package_dict):
     # Get organization list
     user_organization_dict = {}
 
-    context = {"user": user}
+    context = {"user": user_name}
     data_dict = {"permission": "read"}
 
     for org in logic.get_action("organization_list_for_user")(context, data_dict):
@@ -119,6 +105,7 @@ def _restricted_check_user_resource_access(user, resource_dict, package_dict):
     return {
         "success": False,
         "msg": (
-            "Resource access restricted to same " "organization ({}) members"
-        ).format(pkg_organization_id),
+            "Resource access restricted to same "
+            f"organization ({pkg_organization_id}) members"
+        ),
     }

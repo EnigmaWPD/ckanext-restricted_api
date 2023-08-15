@@ -27,7 +27,7 @@ class RestrictedAPIPlugin(SingletonPlugin):
     implements(interfaces.IConfigurer)
     implements(interfaces.IActions)
     implements(interfaces.IAuthFunctions)
-    implements(interfaces.IResourceController)
+    implements(interfaces.IResourceController, inherit=True)
 
     # IConfigurer
     def update_config(self, config):

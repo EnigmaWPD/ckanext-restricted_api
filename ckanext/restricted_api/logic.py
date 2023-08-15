@@ -1,6 +1,5 @@
 """Logic for plugin actions."""
 
-import json
 from logging import getLogger
 
 import ckan.authz as authz
@@ -18,11 +17,11 @@ from ckan.logic.action.get import (
 )
 from ckan.plugins import toolkit
 
-from ckanext.restricted_api import auth
+from ckanext.restricted_api.auth import restricted_resource_show
 from ckanext.restricted_api.mailer import send_access_request_email
 from ckanext.restricted_api.util import (
     check_user_resource_access,
-    get_restricted_dict,
+    get_user_id_from_context,
     get_username_from_context,
 )
 
@@ -37,7 +36,7 @@ def restricted_resource_view_list(context, data_dict):
     resource = model.Resource.get(id)
     if not resource:
         raise NotFound
-    authorized = auth.restricted_resource_show(
+    authorized = restricted_resource_show(
         context, {"id": resource.get("id"), "resource": resource}
     ).get("success", False)
     if not authorized:
@@ -63,9 +62,7 @@ def restricted_package_show(context, data_dict):
     else:
         restricted_package_metadata = dict(package_metadata.for_json())
 
-    # restricted_package_metadata['resources'] = _restricted_resource_list_url(
-    #     context, restricted_package_metadata.get('resources', []))
-    restricted_package_metadata["resources"] = _restricted_resource_list_hide_fields(
+    restricted_package_metadata["resources"] = _restricted_resource_list_hide_urls(
         context, restricted_package_metadata.get("resources", [])
     )
 
@@ -85,7 +82,7 @@ def restricted_resource_search(context, data_dict):
             #     _restricted_resource_list_url(context, value)
             restricted_resource_search_result[
                 key
-            ] = _restricted_resource_list_hide_fields(context, value)
+            ] = _restricted_resource_list_hide_urls(context, value)
         else:
             restricted_resource_search_result[key] = value
 
@@ -133,7 +130,7 @@ def restricted_check_access(context, data_dict):
     if not resource_id:
         raise toolkit.ValidationError("Missing resource_id")
 
-    log.debug("action.restricted_check_access: user_name = " + str(user_name))
+    log.debug(f"action.restricted_check_access: user_name = {str(user_name)}")
 
     log.debug("checking package " + str(package_id))
     package_dict = toolkit.get_action("package_show")(
@@ -147,51 +144,21 @@ def restricted_check_access(context, data_dict):
     return check_user_resource_access(user_name, resource_dict, package_dict)
 
 
-def _restricted_resource_list_hide_fields(context, resource_list):
-    """Hide fields if resource is restricted."""
+def _restricted_resource_list_hide_urls(context, resource_list):
+    """Hide URLs if resource is restricted."""
     restricted_resources_list = []
     for resource in resource_list:
-        # copy original resource
+        # Create a shallow copy of the resource dictionary
         restricted_resource = dict(resource)
 
-        # get the restricted fields
-        restricted_dict = get_restricted_dict(restricted_resource)
-
-        # hide fields to unauthorized users
-        auth.restricted_resource_show(
+        # Hide url for unauthorized users
+        if not restricted_resource_show(
             context, {"id": resource.get("id"), "resource": resource}
-        ).get("success", False)
-
-        # hide other fields in restricted to everyone but dataset owner(s)
-        if not authz.is_authorized(
-            "package_update", context, {"id": resource.get("package_id")}
-        ).get("success"):
-            user_name = get_username_from_context(context)
-
-            # hide partially other allowed user_names (keep own)
-            allowed_users = []
-            for user in restricted_dict.get("allowed_users"):
-                if len(user.strip()) > 0:
-                    if user_name == user:
-                        allowed_users.append(user_name)
-                    else:
-                        allowed_users.append(user[0:3] + "*****" + user[-2:])
-
-            new_restricted = json.dumps(
-                {
-                    "level": restricted_dict.get("level"),
-                    "allowed_users": ",".join(allowed_users),
-                }
-            )
-            extras_restricted = resource.get("extras", {}).get("restricted", {})
-            if extras_restricted:
-                restricted_resource["extras"]["restricted"] = new_restricted
-
-            field_restricted_field = resource.get("restricted", {})
-            if field_restricted_field:
-                restricted_resource["restricted"] = new_restricted
+        ).get("success", False):
+            restricted_resource["url"] = "restricted"
 
         restricted_resources_list += [restricted_resource]
+
     return restricted_resources_list
 
 
@@ -207,16 +174,7 @@ def restricted_request_access(
         raise toolkit.ValidationError({"resource_id": "missing resource_id"})
 
     # Get current user (for authentication only)
-    if (user := context.get("user", "")) != "":
-        log.debug("User ID extracted from context user key")
-        request_user_id = user
-    elif user := context.get("auth_user_obj", None):
-        log.debug("User ID extracted from context auth_user_obj key")
-        request_user_id = user.id
-    else:
-        return {
-            "message": "API token is invalid or missing from Authorization header",
-        }
+    user_id = get_user_id_from_context(context)
 
     package_id = data_dict.get("package_id")
     # Get package associated with resource
@@ -230,4 +188,4 @@ def restricted_request_access(
     # Get resource maintainer
     resource_admin = package.get("maintainer").get("email")
 
-    send_access_request_email(resource_id, resource_admin, request_user_id)
+    send_access_request_email(resource_id, resource_admin, user_id)
