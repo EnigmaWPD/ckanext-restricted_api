@@ -56,6 +56,28 @@ TBC
   - Description: Path to access granted template to render as html email.
   - Default: uses default template.
 
+## The Restricted Dict
+
+- This plugin works by storing information in the `extra` field of the `resource` table in CKAN.
+- By default, CKAN extras values are extracted into the package/resource JSONs returned by the API.
+- The key `restricted` is stored, with a value containing a nested dictionary of:
+
+  - level: a string containing the restriction level, with options:
+    - `public` any user
+    - `registered` only registered users
+    - `only_allowed_users` only users specified in the `allowed_users` key.
+    - `any_organization` any user that is a member in an organisation.
+    - `same_organization` only users of the same organisation the dataset is within.
+  - allowed_users: a list containing specified allowed users, to be used with `only_allowed_users`.
+
+Example:
+
+```json
+"restricted": '{"level": "same_organization", "allowed_users": ""}'
+
+"only_allowed_users": '{"level": "same_organization", "allowed_users": ["user1", "user2"]}'
+```
+
 ## Endpoints
 
 **POST**
@@ -64,8 +86,11 @@ TBC
 
 ## Notes
 
-All information inside the restricted fields (except 'level') is hidden for users other than the ones who can edit the dataset.
+Users who do not have restricted access have two fields redacted:
 
-We used this to keep a shared-secret key field for accessing remotely hosted resources (https://github.com/EnviDat/ckanext-envidat_theme/blob/4265ecfe90e10eb1f095e8e8d19fe43554ab6799/ckanext/envidat_theme/helpers.py#L28).
+- `url`: to download the dataset
+- `restricted`: to see the restriction information
 
-The allowed usernames are hidden partially to the non-editors, in our case was critical because they were very similar to the user emails.
+Downloading of the restricted resource is also not possible via the CKAN API.
+
+However, it should be noted, if resources are hosted in public S3 storage, then this obfuscation does not prevent direct download of the data.
