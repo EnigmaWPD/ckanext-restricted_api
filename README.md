@@ -25,6 +25,8 @@
 
 **This plugin is primarily intended for custom frontends built on the CKAN API.**
 
+**Requires CKAN >=2.10**
+
 - Restrict the accessibility to the resources of a dataset.
 - This way the package metadata is accesible but not the data itself (resource).
 - The resource access restriction level can be individualy defined for every package.
