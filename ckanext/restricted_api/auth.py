@@ -75,7 +75,7 @@ def _restricted_check_user_resource_access(user_name, resource_dict, package_dic
         }
 
     # Get organization list
-    user_organization_dict = get_user_organisations()
+    user_organization_dict = get_user_organisations(user_name)
 
     # Any Organization Members (Trusted Users)
     if not user_organization_dict:
