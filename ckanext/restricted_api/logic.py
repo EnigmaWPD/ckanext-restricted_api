@@ -62,7 +62,7 @@ def restricted_package_show(context, data_dict):
     else:
         restricted_package_metadata = dict(package_metadata.for_json())
 
-    restricted_package_metadata["resources"] = _restricted_resource_list_hide_urls(
+    restricted_package_metadata["resources"] = _restricted_resource_list_hide_fields(
         context, restricted_package_metadata.get("resources", [])
     )
 
@@ -82,7 +82,7 @@ def restricted_resource_search(context, data_dict):
             #     _restricted_resource_list_url(context, value)
             restricted_resource_search_result[
                 key
-            ] = _restricted_resource_list_hide_urls(context, value)
+            ] = _restricted_resource_list_hide_fields(context, value)
         else:
             restricted_resource_search_result[key] = value
 
@@ -144,8 +144,8 @@ def restricted_check_access(context, data_dict):
     return check_user_resource_access(user_name, resource_dict, package_dict)
 
 
-def _restricted_resource_list_hide_urls(context, resource_list):
-    """Hide URLs if resource is restricted."""
+def _restricted_resource_list_hide_fields(context, resource_list):
+    """Hide URLs and restricted field info (if restricted resource."""
     restricted_resources_list = []
     for resource in resource_list:
         # Create a shallow copy of the resource dictionary
@@ -155,7 +155,8 @@ def _restricted_resource_list_hide_urls(context, resource_list):
         if not restricted_resource_show(
             context, {"id": resource.get("id"), "resource": resource}
         ).get("success", False):
-            restricted_resource["url"] = "restricted"
+            restricted_resource["url"] = "redacted"
+            restricted_resource["restricted"] = "redacted"
 
         restricted_resources_list += [restricted_resource]
 

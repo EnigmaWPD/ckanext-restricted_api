@@ -2,11 +2,14 @@
 
 from logging import getLogger
 
-import ckan.logic as logic
 import ckan.logic.auth as logic_auth
 import ckan.plugins.toolkit as toolkit
 
-from ckanext.restricted_api.util import get_restricted_dict, get_username_from_context
+from ckanext.restricted_api.util import (
+    get_restricted_dict,
+    get_user_organisations,
+    get_username_from_context,
+)
 
 log = getLogger(__name__)
 
@@ -45,7 +48,7 @@ def _restricted_check_user_resource_access(user_name, resource_dict, package_dic
     if not restricted_level or restricted_level == "public":
         return {"success": True}
 
-    # Registered user
+    # Registered users only
     if not user_name:
         log.warning(
             "Unauthenticated user attempted to access restricted resource ID: "
@@ -55,10 +58,8 @@ def _restricted_check_user_resource_access(user_name, resource_dict, package_dic
             "success": False,
             "msg": "Resource access restricted to registered users",
         }
-    else:
-        # Only registered users can access
-        if restricted_level == "registered":
-            return {"success": True}
+    if restricted_level == "registered":
+        return {"success": True}
 
     # Since we have a user, check if it is in the allowed list
     if user_name in allowed_users:
@@ -74,16 +75,7 @@ def _restricted_check_user_resource_access(user_name, resource_dict, package_dic
         }
 
     # Get organization list
-    user_organization_dict = {}
-
-    context = {"user": user_name}
-    data_dict = {"permission": "read"}
-
-    for org in logic.get_action("organization_list_for_user")(context, data_dict):
-        name = org.get("name", "")
-        id = org.get("id", "")
-        if name and id:
-            user_organization_dict[id] = name
+    user_organization_dict = get_user_organisations()
 
     # Any Organization Members (Trusted Users)
     if not user_organization_dict:
@@ -91,13 +83,11 @@ def _restricted_check_user_resource_access(user_name, resource_dict, package_dic
             "success": False,
             "msg": "Resource access restricted to members of an organization",
         }
-
     if restricted_level == "any_organization":
         return {"success": True}
 
-    pkg_organization_id = package_dict.get("owner_org", "")
-
     # Same Organization Members
+    pkg_organization_id = package_dict.get("owner_org", "")
     if restricted_level == "same_organization":
         if pkg_organization_id in user_organization_dict.keys():
             return {"success": True}
