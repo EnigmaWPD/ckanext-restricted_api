@@ -1,3 +1,15 @@
+## 2.0.0 (2023-08-15)
+
+### Refactor
+
+- ckan 2.9 --> 2.10 updates
+
+## 1.0.0 (2023-08-15)
+
+### Fix
+
+- bug getting users organisations
+
 ## 0.1.2 (2023-08-15)
 
 ### Fix
