@@ -1,3 +1,12 @@
+## 0.1.2 (2023-08-15)
+
+### Fix
+
+- user org logic in utils, redact restricted info
+- refine, fix, dry logic
+- import spelling in logic.py
+- import error for plugin
+
 ## 0.1.1 (2023-08-14)
 
 ### Fix
