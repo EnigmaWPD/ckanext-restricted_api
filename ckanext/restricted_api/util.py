@@ -113,7 +113,7 @@ def get_restricted_dict(resource_dict):
     The ckan plugin ckanext-scheming changes the structure of the resource
     dict and the nature of how to access our restricted field values.
     """
-    restricted_dict = {"level": "public", "allowed_users": []}
+    restricted_dict = {"level": "public", "allowed_users": ""}
 
     if resource_dict:
         # the dict might exist as a child inside the extras dict
@@ -131,7 +131,7 @@ def get_restricted_dict(resource_dict):
 
         if restricted:
             restricted_level = restricted.get("level", "public")
-            allowed_users = restricted.get("allowed_users", [])
+            allowed_users = restricted.get("allowed_users", "")
             if not isinstance(allowed_users, list):
                 allowed_users = allowed_users.split(",")
             restricted_dict = {
@@ -147,7 +147,7 @@ def check_user_resource_access(user, resource_dict, package_dict):
     restricted_dict = get_restricted_dict(resource_dict)
 
     restricted_level = restricted_dict.get("level", "public")
-    allowed_users = restricted_dict.get("allowed_users", [])
+    allowed_users = restricted_dict.get("allowed_users", "")
 
     # Public resources (DEFAULT)
     if not restricted_level or restricted_level == "public":

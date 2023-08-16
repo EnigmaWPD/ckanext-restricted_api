@@ -40,6 +40,7 @@ class RestrictedAPIPlugin(SingletonPlugin):
         return {
             "resource_view_list": restricted_resource_view_list,
             "package_show": restricted_package_show,
+            "current_package_list_with_resources": restricted_package_show,
             "resource_search": restricted_resource_search,
             "package_search": restricted_package_search,
             "restricted_check_access": restricted_check_access,

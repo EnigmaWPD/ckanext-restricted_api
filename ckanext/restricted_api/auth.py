@@ -42,7 +42,7 @@ def _restricted_check_user_resource_access(user_name, resource_dict, package_dic
     restricted_dict = get_restricted_dict(resource_dict)
 
     restricted_level = restricted_dict.get("level", "public")
-    allowed_users = restricted_dict.get("allowed_users", [])
+    allowed_users = restricted_dict.get("allowed_users", "")
 
     # Public resources (DEFAULT)
     if not restricted_level or restricted_level == "public":
