@@ -33,12 +33,6 @@
 
 Based on work by @espona (Lucia Espona Pernas) for ckanext-restricted (https://github.com/EnviDat/ckanext-restricted).
 
-**Granting Access**
-
-1. Users can request access to a dataset by calling an API endpoint from a frontend.
-2. The package owner is emailed and can allow individual users to access the resource.
-3. If access is granted, the user will be notified by email.
-
 ## Install
 
 ```bash
@@ -48,8 +42,6 @@ pip install ckanext-restricted-api
 ## Config
 
 Optional variables can be set in your ckan.ini:
-
-TBC
 
 - **restricted_api.access_request_template**
   - Description: Path to access request template to render as html email.
@@ -70,15 +62,23 @@ TBC
     - `only_allowed_users` only users specified in the `allowed_users` key.
     - `any_organization` any user that is a member in an organisation.
     - `same_organization` only users of the same organisation the dataset is within.
-  - allowed_users: a list containing specified allowed users, to be used with `only_allowed_users`.
+  - allowed_users: a comma separated string containing specified allowed users,
+    to be used with `only_allowed_users`.
 
 Example:
 
 ```json
 "restricted": '{"level": "same_organization", "allowed_users": ""}'
 
-"only_allowed_users": '{"level": "same_organization", "allowed_users": ["user1", "user2"]}'
+"only_allowed_users": '{"level": "same_organization", "allowed_users": "user1,user2,user3"}'
 ```
+
+## Granting Access
+
+1. Users can request access to a dataset by calling an API endpoint from a frontend.
+2. The package owner is emailed and can allow individual users to access the resource.
+   a. Access can be granted by updating the restricted dict (via the API / frontend).
+3. If access is granted, the user will be notified by email automatically.
 
 ## Endpoints
 
