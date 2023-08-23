@@ -1,3 +1,9 @@
+## 2.0.4 (2023-08-23)
+
+### Fix
+
+- add ckan.ini option to omit packages
+
 ## 2.0.3 (2023-08-23)
 
 ### Fix
