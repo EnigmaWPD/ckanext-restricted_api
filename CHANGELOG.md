@@ -1,3 +1,9 @@
+## 2.0.2 (2023-08-23)
+
+### Fix
+
+- logic for current_package_list
+
 ## 2.0.1 (2023-08-23)
 
 ### Fix
