@@ -51,9 +51,20 @@ def restricted_current_package_list(context, data_dict):
     """Add restriction to current_package_list_with_resources."""
     current_packages = current_package_list_with_resources(context, data_dict)
 
-    # Remove 'resources' array from each package
-    for package in current_packages:
-        package["resources"] = ["redacted"]
+    omit_resources = bool(
+        toolkit.config.get("ckanext.restricted_api.omit_resources_on_pkg_list", True)
+    )
+
+    if omit_resources:
+        # Remove 'resources' array from each package
+        for package in current_packages:
+            package["resources"] = ["redacted"]
+
+    else:
+        for package in current_packages:
+            package["resources"] = _restricted_resource_list_hide_fields(
+                context, package.get("resources", [])
+            )
 
     return current_packages
 
