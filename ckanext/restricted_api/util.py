@@ -60,6 +60,10 @@ def get_user_id_from_context(context, username: bool = False):
         log.debug("User ID extracted from context user key")
         user_id = user
     elif user := context.get("auth_user_obj", None):
+        # Handle AnonymousUser in CKAN 2.10
+        if user.name == "":
+            log.debug("User not present in context")
+            return None
         log.debug("User ID extracted from context auth_user_obj key")
         if username:
             user_id = user.name
