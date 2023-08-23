@@ -7,6 +7,7 @@ from ckan.plugins import SingletonPlugin, implements, interfaces, toolkit
 from ckanext.restricted_api.auth import restricted_resource_show
 from ckanext.restricted_api.logic import (
     restricted_check_access,
+    restricted_current_package_list,
     restricted_package_search,
     restricted_package_show,
     restricted_request_access,
@@ -40,7 +41,7 @@ class RestrictedAPIPlugin(SingletonPlugin):
         return {
             "resource_view_list": restricted_resource_view_list,
             "package_show": restricted_package_show,
-            "current_package_list_with_resources": restricted_package_show,
+            "current_package_list_with_resources": restricted_current_package_list,
             "resource_search": restricted_resource_search,
             "package_search": restricted_package_search,
             "restricted_check_access": restricted_check_access,

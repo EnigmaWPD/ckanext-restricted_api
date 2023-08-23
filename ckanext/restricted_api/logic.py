@@ -10,6 +10,7 @@ from ckan.logic import (
     side_effect_free,
 )
 from ckan.logic.action.get import (
+    current_package_list_with_resources,
     package_search,
     package_show,
     resource_search,
@@ -43,6 +44,18 @@ def restricted_resource_view_list(context, data_dict):
         return []
     else:
         return resource_view_list(context, data_dict)
+
+
+@side_effect_free
+def restricted_current_package_list(context, data_dict):
+    """Add restriction to current_package_list_with_resources."""
+    current_packages = current_package_list_with_resources(context, data_dict)
+
+    # Remove 'resources' array from each package
+    for package in current_packages:
+        package["resources"] = ["redacted"]
+
+    return current_packages
 
 
 @side_effect_free
