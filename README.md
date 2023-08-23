@@ -49,6 +49,10 @@ Optional variables can be set in your ckan.ini:
 - **restricted_api.access_granted_template**
   - Description: Path to access granted template to render as html email.
   - Default: uses default template.
+- **ckanext.restricted_api.omit_resources_on_pkg_list**
+  - Description: on current_package_list_with_resources
+    omit resources completely, or process them all to restrict fields (this may not be performant).
+  - Default: True (to maximise performance).
 
 ## The Restricted Dict
 
