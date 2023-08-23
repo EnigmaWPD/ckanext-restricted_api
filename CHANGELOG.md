@@ -1,3 +1,10 @@
+## 2.0.1 (2023-08-23)
+
+### Fix
+
+- ckan 2.10 support with AnonymousUser
+- refactor allowed_users is always a string
+
 ## 2.0.0 (2023-08-15)
 
 ### Refactor
