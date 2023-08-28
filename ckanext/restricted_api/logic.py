@@ -2,7 +2,6 @@
 
 from logging import getLogger
 
-import ckan.authz as authz
 from ckan.common import _
 from ckan.logic import (
     NotFound,
@@ -72,12 +71,16 @@ def restricted_current_package_list(context, data_dict):
 @side_effect_free
 def restricted_package_show(context, data_dict):
     """Add restriction to package_show."""
-    package_metadata = package_show(context, data_dict)
+    try:
+        package_metadata = package_show(context, data_dict)
+    except toolkit.NotAuthorized as e:
+        log.warning(e)
+        log.warning(f"User attempted to access hidden dataset: {data_dict}")
+        # Hack to not break CKAN
+        return {"resources": []}
 
     # Ensure user who can edit can see the resource
-    if authz.is_authorized("package_update", context, package_metadata).get(
-        "success", False
-    ):
+    if toolkit.check_access("package_update", context, package_metadata):
         return package_metadata
 
     # Custom authorization
