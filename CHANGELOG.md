@@ -1,3 +1,9 @@
+## 2.0.5 (2023-08-28)
+
+### Fix
+
+- refactor out authz, use check_access
+
 ## 2.0.4 (2023-08-23)
 
 ### Fix
