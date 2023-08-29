@@ -4,6 +4,7 @@ from logging import getLogger
 
 from ckan.common import _
 from ckan.logic import (
+    NotAuthorized,
     NotFound,
     get_or_bust,
     side_effect_free,
@@ -73,17 +74,18 @@ def restricted_package_show(context, data_dict):
     """Add restriction to package_show."""
     try:
         package_metadata = package_show(context, data_dict)
-    except toolkit.NotAuthorized as e:
-        log.warning(e)
-        log.warning(f"User attempted to access hidden dataset: {data_dict}")
-        # Hack to not break CKAN
-        return {"resources": []}
+    except NotAuthorized:
+        # Skip dataset (user has no access to view)
+        return {}
 
     # Ensure user who can edit can see the resource
-    if toolkit.check_access("package_update", context, package_metadata):
-        return package_metadata
+    try:
+        if toolkit.check_access("package_update", context, package_metadata):
+            return package_metadata
+    except NotAuthorized:
+        # Continue to restriction
+        pass
 
-    # Custom authorization
     if isinstance(package_metadata, dict):
         restricted_package_metadata = dict(package_metadata)
     else:
