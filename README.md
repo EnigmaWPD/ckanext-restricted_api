@@ -74,7 +74,7 @@ Example:
 ```json
 "restricted": '{"level": "same_organization", "allowed_users": ""}'
 
-"only_allowed_users": '{"level": "same_organization", "allowed_users": "user1,user2,user3"}'
+"restricted": '{"level": "only_allowed_users", "allowed_users": "user1,user2,user3"}'
 ```
 
 ## Granting Access
