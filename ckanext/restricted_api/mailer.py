@@ -113,7 +113,7 @@ def send_access_request_email(
         return {"message": f"could not find a user for id: {resource_admin_id}"}
 
     # Create and send email
-    body = _get_access_granted_mail_body(
+    body = _get_access_request_mail_body(
         resource_id, resource_admin_obj.as_dict(), request_user_id
     )
     subject = f"Access request for resource: {resource_id}"
