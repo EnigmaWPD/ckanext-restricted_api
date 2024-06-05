@@ -1,6 +1,7 @@
 """Logic for plugin actions."""
 
 from logging import getLogger
+import inspect
 
 import ckan.authz as authz
 from ckan.common import _
@@ -45,9 +46,11 @@ def restricted_resource_view_list(context, data_dict):
         return resource_view_list(context, data_dict)
 
 
+# TODO: should be chained action...
 @side_effect_free
 def restricted_package_show(context, data_dict):
     """Add restriction to package_show."""
+    log.debug("from restricted_package_show")
     package_metadata = package_show(context, data_dict)
 
     # Ensure user who can edit can see the resource
@@ -62,9 +65,15 @@ def restricted_package_show(context, data_dict):
     else:
         restricted_package_metadata = dict(package_metadata.for_json())
 
-    restricted_package_metadata["resources"] = _restricted_resource_list_hide_fields(
-        context, restricted_package_metadata.get("resources", [])
-    )
+    # This is a break from the original implementation - if we've been told to ignore the
+    #   resources of this package, we don't bother with checking/modifying their representations,
+    #   we just outright remove that key from the result
+    if not context.get("omit_resources", False):
+        restricted_package_metadata["resources"] = _restricted_resource_list_hide_fields(
+            context, restricted_package_metadata.get("resources", [])
+        )
+    else:
+        del restricted_package_metadata["resources"]
 
     return restricted_package_metadata
 
@@ -72,6 +81,7 @@ def restricted_package_show(context, data_dict):
 @side_effect_free
 def restricted_resource_search(context, data_dict):
     """Add restriction to resource_search."""
+    log.debug("from restricted_resource_search")
     resource_search_result = resource_search(context, data_dict)
 
     restricted_resource_search_result = {}
@@ -89,10 +99,13 @@ def restricted_resource_search(context, data_dict):
     return restricted_resource_search_result
 
 
+# TODO: this should be a chained action!
 @side_effect_free
-def restricted_package_search(context, data_dict):
+@toolkit.chained_action
+def restricted_package_search(original_action, context, data_dict):
     """Add restriction to package_search."""
-    package_search_result = package_search(context, data_dict)
+    log.debug(f"from restricted_package_search {inspect.currentframe().f_back.f_code.co_name}")
+    package_search_result = original_action(context, data_dict)
 
     restricted_package_search_result = {}
 
