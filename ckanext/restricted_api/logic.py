@@ -1,10 +1,9 @@
 """Logic for plugin actions."""
 
 from logging import getLogger
-import inspect
 
 import ckan.authz as authz
-from ckan.common import _
+from ckan.common import _, request
 from ckan.logic import (
     NotFound,
     get_or_bust,
@@ -27,6 +26,14 @@ from ckanext.restricted_api.util import (
 )
 
 log = getLogger(__name__)
+
+# we don't need to include dashboard.datasets or user.read, as the "package_update" check in restricted_package_show
+#   will skip over the redaction of resources anyway
+LITE_RESOURCES_FOR_ENDPOINTS = [
+    'dataset.search',           # i.e. the /dataset/ list page
+    'group.read',               # the /group/<group_id> page which lists that group's datasets
+    'organization.read',        # the /organization/<organization_id> page which lists that organization's datasets
+]
 
 
 @side_effect_free
@@ -69,10 +76,32 @@ def restricted_package_show(context, data_dict):
     #   resources of this package, we don't bother with checking/modifying their representations,
     #   we just outright remove that key from the result
     if not context.get("omit_resources", False):
-        restricted_package_metadata["resources"] = _restricted_resource_list_hide_fields(
-            context, restricted_package_metadata.get("resources", [])
-        )
+        if context.get("lite_resources", False):
+            log.debug('lite resources')
+            # we've been asked to only return minimal information on the resources, data of which is not subject
+            #   to permission checks
+            restricted_package_metadata["resources"] = [
+                {
+                    'created': res['created'],
+                    'last_modified': res['last_modified'],
+                    'metadata_modified': res['metadata_modified'],
+                    'format': res['format'],
+                    'id': res['id'],
+                    'package_id': res['package_id'],
+                    'mimetype': res['mimetype'],
+                    'name': res['name'],
+                    'state': res['state']
+                }
+                for res in restricted_package_metadata.get("resources", [])
+            ]
+        else:
+            log.debug("full thing")
+            # the full thing, with restricted resource fields being redacted
+            restricted_package_metadata["resources"] = _restricted_resource_list_hide_fields(
+                context, restricted_package_metadata.get("resources", [])
+            )
     else:
+        log.debug('omitting resources')
         del restricted_package_metadata["resources"]
 
     return restricted_package_metadata
@@ -99,18 +128,24 @@ def restricted_resource_search(context, data_dict):
     return restricted_resource_search_result
 
 
-# TODO: this should be a chained action!
 @side_effect_free
 @toolkit.chained_action
 def restricted_package_search(original_action, context, data_dict):
     """Add restriction to package_search."""
-    log.debug(f"from restricted_package_search {inspect.currentframe().f_back.f_code.co_name}")
+    log.debug(f"from restricted_package_search {request.path} {request.endpoint}")
     package_search_result = original_action(context, data_dict)
 
     restricted_package_search_result = {}
 
     package_show_context = context.copy()
     package_show_context["with_capacity"] = False
+
+    # Not massively happy about this, but it beats overriding each of the blueprint functions individually
+    # Since we know that these blueprint pages don't render information on any resources, we can improve performance
+    #   by stripping the resource information out
+    if request and request.endpoint in LITE_RESOURCES_FOR_ENDPOINTS:
+        log.debug("change to lite resources")
+        package_show_context["lite_resources"] = True
 
     for key, value in package_search_result.items():
         if key == "results":
