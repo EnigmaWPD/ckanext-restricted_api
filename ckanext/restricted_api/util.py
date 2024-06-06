@@ -3,6 +3,7 @@
 
 import json
 import re
+import ipaddress
 from logging import getLogger
 
 import ckan.logic as logic
@@ -45,47 +46,96 @@ def is_valid_ip(ip_str):
     Required as sometimes an IP is passed in the user context,
     instead of a user ID (if the user is unauthenticated).
     """
-    pattern = r"^(\d{1,3}\.){3}\d{1,3}$"
-    if re.match(pattern, ip_str):
-        octets = ip_str.split(".")
-        if all(0 <= int(octet) <= 255 for octet in octets):
-            return True
-    return False
+    # NM: the original implementation did not account for ipv6 addresses
+    try:
+        ipaddress.ip_address(ip_str)
+        return True
+    except ValueError:
+        return False
 
 
-def get_user_id_from_context(context, username: bool = False):
+def get_user_id_from_context(context, username: bool = False, save_to_context=True):
     """Get user id or username from context."""
+    # NM: rewrote this somewhat
+
+    # we've been here before, regurgitate our last extracted user
+    if save_to_context and 'restricted_api_extracted_user_obj_from_context' in context:
+        if isinstance(context['restricted_api_extracted_user_obj_from_context'], User):
+            if username:
+                return context['restricted_api_extracted_user_obj_from_context'].name
+            else:
+                return context['restricted_api_extracted_user_obj_from_context'].id
+
+        # if context['restricted_api_extracted_user_obj_from_context'] is not a user, then it was an anonymous
+        #   user/IP address (str) or an undefined user (None)
+        return context['restricted_api_extracted_user_obj_from_context']
+
+    # otherwise continue as normal
     if (user := context.get("user", "")) != "":
         if is_valid_ip(user):
-            log.debug(f"Unauthenticated access attempted from IP: {user}")
+            log.debug(f"Context has IP: {user}")
+            # NM: this should quit early rather than falling through - we know there is no CKAN user we can extract
+            #   from this!
+            if save_to_context:
+                context['restricted_api_extracted_user_obj_from_context'] = user
+            return user
+
         log.debug("User ID extracted from context user key")
+        # FYI, the `user` value in the context can either be a username or a user id, which is why the following
+        #   below if/else is needed to make sure we're returning exactly the value we want
         user_id = user
+
+        # try checking to see if the current request userobj can be used to pick out the id/name
+        if toolkit.g and toolkit.g.userobj and (toolkit.g.userobj.name == user_id or toolkit.g.userobj.id == user_id):
+            log.debug("Using toolkit.g.userobj")
+            if username:
+                user_id = toolkit.g.userobj.name
+            else:
+                user_id = toolkit.g.userobj.id
+            if save_to_context:
+                context['restricted_api_extracted_user_obj_from_context'] = toolkit.g.userobj
+
+        # otherwise we've gotta ask the DB
+        else:
+            log.debug("Getting user from DB")
+            # we are forgoing a call to `user_show` as calling it doesn't really tell us anything helpful - deleted
+            #   users are still returned by it, and it would realistically only throw an exception if the user did not
+            #   exist in the database (ObjectNotFound), or if the caller did not have permissions to query `user_show`,
+            #   which is not the job of a utility function to determine (and by CKAN default, everyone has permission
+            #   for this anyway)
+            user = User.get(user_id)
+
+            if save_to_context:
+                context['restricted_api_extracted_user_obj_from_context'] = user if user else user_id
+
+            if user:
+                if username:
+                    user_id = user.name
+                else:
+                    user_id = user.id
+            # else user_id remains as whatever it was
+
     elif user := context.get("auth_user_obj", None):
         log.debug("User ID extracted from context auth_user_obj key")
         if username:
             user_id = user.name
         else:
             user_id = user.id
+
+        if save_to_context:
+            context['restricted_api_extracted_user_obj_from_context'] = user
     else:
         log.debug("User not present in context")
+        if save_to_context:
+            context['restricted_api_extracted_user_obj_from_context'] = None
         return None
-
-    try:
-        log.info(f"Getting user details with user_id: {user_id}")
-        user = toolkit.get_action("user_show")(
-            data_dict={
-                "id": user_id,
-            },
-        )
-    except Exception:
-        log.warning(f"Could not find a user for ID: {user_id}")
 
     return user_id
 
 
-def get_username_from_context(context):
+def get_username_from_context(context, save_to_context=True):
     """Get username from context."""
-    return get_user_id_from_context(context, username=True)
+    return get_user_id_from_context(context, username=True, save_to_context=save_to_context)
 
 
 def get_user_organisations(user_name) -> dict:
