@@ -230,7 +230,7 @@ def restricted_package_search(original_action, context, data_dict):
             restricted_package_search_result_list = []
             for package in value:
                 restricted_package_search_result_list.append(
-                    restricted_package_show(
+                    toolkit.get_action('package_show')(
                         package_show_context, {"id": package.get("id")}
                     )
                 )
