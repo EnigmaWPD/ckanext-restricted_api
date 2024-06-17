@@ -7,11 +7,64 @@ import ipaddress
 from logging import getLogger
 
 import ckan.logic as logic
+import ckan.model as model
 from ckan.model import User
 from ckan.plugins import toolkit
+import ckan.plugins as p
 from ckan.lib import app_globals
 
 log = getLogger(__name__)
+
+
+RESTRICTED_LOGIC_PACKAGE_DICT_KEY = "restricted_logic_package_dict"
+RESTRICTED_API_EXTRACTED_USER_OBJ_FROM_CONTEXT_KEY = "restricted_api_extracted_user_obj_from_context"
+HAS_PRE_EVALUATED_RESTRICTED_RESOURCE_DICT = "has_pre_evaluated_restricted_resource_show"
+
+
+def get_all_view_plugins():
+    '''
+    NM: Returns all enabled resource view plugins
+    '''
+    return p.PluginImplementations(p.IResourceView)
+
+
+def get_all_view_plugin_names():
+    '''
+    NM
+    :return:
+    '''
+    return [plugin.info().get('name') for plugin in get_all_view_plugins()]
+
+
+def package_to_restricted_logic_dict(package):
+    '''
+    NM: model.Package.as_dict() is good and everything, but it always evaluates the resources of the package. This can
+    be super-duper wasteful if we're not interested in that bit of it, which we're not going to be for the actions
+    defined in this extension.
+
+    :param package:
+    :return:
+    '''
+    if isinstance(package, model.Package):
+        # this will actually contain more than we really need, but won't try and fetch any relationships.
+        #   we're really only interested in the `id` and `owner_org`
+        return model.domain_object.DomainObject.as_dict(package)
+
+    return package
+
+
+def get_restricted_logic_package_dict(context, package_if_not_in_context=None):
+    '''
+    NM
+    :param context:
+    :param package_if_not_in_context:
+    :return:
+    '''
+    if (not context.get(RESTRICTED_LOGIC_PACKAGE_DICT_KEY, None)) and \
+            (pkg := context.get("package", package_if_not_in_context)):
+        context[RESTRICTED_LOGIC_PACKAGE_DICT_KEY] = package_to_restricted_logic_dict(pkg)
+
+    return context.get(RESTRICTED_LOGIC_PACKAGE_DICT_KEY, {})
 
 
 def get_user_from_email(email: str):
@@ -59,16 +112,16 @@ def get_user_id_from_context(context, username: bool = False, save_to_context=Tr
     # NM: rewrote this somewhat
 
     # we've been here before, regurgitate our last extracted user
-    if save_to_context and 'restricted_api_extracted_user_obj_from_context' in context:
-        if isinstance(context['restricted_api_extracted_user_obj_from_context'], User):
+    if save_to_context and RESTRICTED_API_EXTRACTED_USER_OBJ_FROM_CONTEXT_KEY in context:
+        if isinstance(context[RESTRICTED_API_EXTRACTED_USER_OBJ_FROM_CONTEXT_KEY], User):
             if username:
-                return context['restricted_api_extracted_user_obj_from_context'].name
+                return context[RESTRICTED_API_EXTRACTED_USER_OBJ_FROM_CONTEXT_KEY].name
             else:
-                return context['restricted_api_extracted_user_obj_from_context'].id
+                return context[RESTRICTED_API_EXTRACTED_USER_OBJ_FROM_CONTEXT_KEY].id
 
-        # if context['restricted_api_extracted_user_obj_from_context'] is not a user, then it was an anonymous
+        # if context[RESTRICTED_API_EXTRACTED_USER_OBJ_FROM_CONTEXT_KEY] is not a user, then it was an anonymous
         #   user/IP address (str) or an undefined user (None)
-        return context['restricted_api_extracted_user_obj_from_context']
+        return context[RESTRICTED_API_EXTRACTED_USER_OBJ_FROM_CONTEXT_KEY]
 
     # otherwise continue as normal
     if (user := context.get("user", "")) != "":
@@ -77,7 +130,7 @@ def get_user_id_from_context(context, username: bool = False, save_to_context=Tr
             # NM: this should quit early rather than falling through - we know there is no CKAN user we can extract
             #   from this!
             if save_to_context:
-                context['restricted_api_extracted_user_obj_from_context'] = user
+                context[RESTRICTED_API_EXTRACTED_USER_OBJ_FROM_CONTEXT_KEY] = user
             return user
 
         log.debug("User ID extracted from context user key")
@@ -93,7 +146,7 @@ def get_user_id_from_context(context, username: bool = False, save_to_context=Tr
             else:
                 user_id = toolkit.g.userobj.id
             if save_to_context:
-                context['restricted_api_extracted_user_obj_from_context'] = toolkit.g.userobj
+                context[RESTRICTED_API_EXTRACTED_USER_OBJ_FROM_CONTEXT_KEY] = toolkit.g.userobj
 
         # otherwise we've gotta ask the DB
         else:
@@ -106,7 +159,7 @@ def get_user_id_from_context(context, username: bool = False, save_to_context=Tr
             user = User.get(user_id)
 
             if save_to_context:
-                context['restricted_api_extracted_user_obj_from_context'] = user if user else user_id
+                context[RESTRICTED_API_EXTRACTED_USER_OBJ_FROM_CONTEXT_KEY] = user if user else user_id
 
             if user:
                 if username:
@@ -123,11 +176,11 @@ def get_user_id_from_context(context, username: bool = False, save_to_context=Tr
             user_id = user.id
 
         if save_to_context:
-            context['restricted_api_extracted_user_obj_from_context'] = user
+            context[RESTRICTED_API_EXTRACTED_USER_OBJ_FROM_CONTEXT_KEY] = user
     else:
         log.debug("User not present in context")
         if save_to_context:
-            context['restricted_api_extracted_user_obj_from_context'] = None
+            context[RESTRICTED_API_EXTRACTED_USER_OBJ_FROM_CONTEXT_KEY] = None
         return None
 
     return user_id
