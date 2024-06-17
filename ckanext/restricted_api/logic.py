@@ -185,25 +185,22 @@ def restricted_package_show(original_action, context, data_dict):
     return restricted_package_metadata
 
 
+@toolkit.chained_action
 @side_effect_free
-def restricted_resource_search(context, data_dict):
-    """Add restriction to resource_search."""
-    log.debug("from restricted_resource_search")
-    resource_search_result = resource_search(context, data_dict)
+def restricted_resource_search(original_action, context, data_dict):
+    """Add restriction to resource_search.
 
-    restricted_resource_search_result = {}
+    NM: modified so that it's a chained_action, and doesn't bother creating a new dict from the resource_search_result
+    """
+    log.debug("from restricted_resource_search using original_action")
+    resource_search_result = original_action(context, data_dict)
 
-    for key, value in resource_search_result.items():
-        if key == "results":
-            # restricted_resource_search_result[key] = \
-            #     _restricted_resource_list_url(context, value)
-            restricted_resource_search_result[
-                key
-            ] = _restricted_resource_list_hide_fields(context, value)
-        else:
-            restricted_resource_search_result[key] = value
+    if resource_search_result.get("results", None):
+        # we don't even need to assign back - remember we changed _restricted_resource_list_hide_fields to write
+        #   back to the supplied list.
+        _restricted_resource_list_hide_fields(context, resource_search_result["results"])
 
-    return restricted_resource_search_result
+    return resource_search_result
 
 
 @side_effect_free
@@ -261,15 +258,14 @@ def restricted_check_access(context, data_dict):
     # NM: removed the check on package_show, as the call to the action `resource_show` calls `package_show` anyway.
     try:
         toolkit.get_action("resource_show")(
-            # NM: pass through the package_dict rather than make this do model.Package.get
-            #   We also want use lite_resources, as `action.get.resource_show` from CKAN will trigger a `package_show`,
+            # NM: we use lite_resources, as `action.get.resource_show` from CKAN will trigger a `package_show`,
             #   and we're not interested in evaluating the restriction of all the resources.
             #   We can't outright omit_resources as `resource_show` does a check to see if the `resource_id` is in the
             #   fetched package's `resources` list.
             dict(context, return_type="dict", lite_resources=True), {"id": resource_id}
         )
     except toolkit.NotAuthorized as e:
-        # NM: you don't need to manually call the check auth function... resource_show will do that for you!
+        # NM: you don't need to manually call the check auth function... `resource_show` will do that for you!
         #   we still want to return the same format of result that it would have done though.
         return {
             'success': False,
