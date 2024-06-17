@@ -257,8 +257,8 @@ def get_restricted_dict(resource_dict):
         'allowed_users': allowed_users}
 
 
-def check_user_resource_access(user, resource_dict, package_dict):
-    """Chec if user has access to restricted resource."""
+def check_user_resource_access(user_name, resource_dict, restricted_logic_package_dict):
+    """Check if user has access to restricted resource."""
     restricted_dict = get_restricted_dict(resource_dict)
 
     restricted_level = restricted_dict.get("level", "public")
@@ -269,35 +269,34 @@ def check_user_resource_access(user, resource_dict, package_dict):
         return {"success": True}
 
     # Registered user
-    if not user:
+    if not user_name:
+        log.debug(
+            "Unauthenticated user attempted to access restricted resource ID: "
+            f"{resource_dict.get('id')}"
+        )
         return {
             "success": False,
             "msg": "Resource access restricted to registered users",
         }
-    else:
-        if restricted_level == "registered" or not restricted_level:
-            return {"success": True}
+
+    if restricted_level == "registered":
+        return {"success": True}
 
     # Since we have a user, check if it is in the allowed list
-    if user in allowed_users:
+    if user_name in allowed_users:
         return {"success": True}
     elif restricted_level == "only_allowed_users":
+        log.debug(
+            f"{user_name} attempted and failed to access restricted "
+            f"resource ID: {resource_dict.get('id')}"
+        )
         return {
             "success": False,
             "msg": "Resource access restricted to allowed users only",
         }
 
     # Get organization list
-    user_organization_dict = {}
-
-    context = {"user": user}
-    data_dict = {"permission": "read"}
-
-    for org in logic.get_action("organization_list_for_user")(context, data_dict):
-        name = org.get("name", "")
-        id = org.get("id", "")
-        if name and id:
-            user_organization_dict[id] = name
+    user_organization_dict = get_user_organisations(user_name)
 
     # Any Organization Members (Trusted Users)
     if not user_organization_dict:
@@ -309,9 +308,8 @@ def check_user_resource_access(user, resource_dict, package_dict):
     if restricted_level == "any_organization":
         return {"success": True}
 
-    pkg_organization_id = package_dict.get("owner_org", "")
-
     # Same Organization Members
+    pkg_organization_id = restricted_logic_package_dict.get("owner_org", "")
     if restricted_level == "same_organization":
         if pkg_organization_id in user_organization_dict.keys():
             return {"success": True}
@@ -320,6 +318,6 @@ def check_user_resource_access(user, resource_dict, package_dict):
         "success": False,
         "msg": (
             "Resource access restricted to same "
-            "organization ({pkg_organization_id}) members"
+            f"organization ({pkg_organization_id}) members"
         ),
     }
