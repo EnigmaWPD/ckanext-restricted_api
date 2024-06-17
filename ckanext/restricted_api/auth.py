@@ -56,6 +56,7 @@ def restricted_resource_show(context, data_dict=None):
     return _restricted_check_user_resource_access(user_name, resource, pkg_dict)
 
 
+# TODO: NM: why is this just not using the util function??
 def _restricted_check_user_resource_access(user_name, resource_dict, restricted_logic_package_dict):
     """Check resource access using restricted info dict."""
     restricted_dict = get_restricted_dict(resource_dict)

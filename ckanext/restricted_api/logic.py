@@ -2,6 +2,7 @@
 
 from logging import getLogger
 
+import inspect
 import ckan.authz as authz
 from ckan.common import _, request
 from ckan.logic import (
@@ -16,7 +17,6 @@ import ckan.model as model
 from ckanext.restricted_api.auth import restricted_resource_show
 from ckanext.restricted_api.mailer import send_access_request_email
 from ckanext.restricted_api.util import (
-    check_user_resource_access,
     get_user_id_from_context,
     get_username_from_context,
     get_restricted_logic_package_dict,
@@ -131,7 +131,7 @@ def restricted_resource_view_list(context, data_dict):
 # NM: honestly, do we even really need this...?
 def restricted_package_show(original_action, context, data_dict):
     """Add restriction to package_show."""
-    #log.debug("from restricted_package_show calling original_action")
+    log.debug(f"start function restricted_package_show from {inspect.currentframe().f_back.f_code.co_name}")
     package_metadata = original_action(context, data_dict)
     #log.debug(f"context is {context}")
 
@@ -245,29 +245,38 @@ def restricted_package_search(original_action, context, data_dict):
 
 @side_effect_free
 def restricted_check_access(context, data_dict):
-    """Check access for a restricted resource."""
-    package_id = data_dict.get("package_id", False)
+    """Check access for a restricted resource.
+
+    NM: removed the need to supply package_id, as only resource_id should be enough.
+    """
     resource_id = data_dict.get("resource_id", False)
 
     user_name = get_username_from_context(context)
 
-    if not package_id:
-        raise toolkit.ValidationError("Missing package_id")
     if not resource_id:
         raise toolkit.ValidationError("Missing resource_id")
 
     log.debug(f"action.restricted_check_access: user_name = {str(user_name)}")
 
-    log.debug("checking package " + str(package_id))
-    package_dict = toolkit.get_action("package_show")(
-        dict(context, return_type="dict"), {"id": package_id}
-    )
-    log.debug("checking resource")
-    resource_dict = toolkit.get_action("resource_show")(
-        dict(context, return_type="dict"), {"id": resource_id}
-    )
+    # NM: removed the check on package_show, as the call to the action `resource_show` calls `package_show` anyway.
+    try:
+        toolkit.get_action("resource_show")(
+            # NM: pass through the package_dict rather than make this do model.Package.get
+            #   We also want use lite_resources, as `action.get.resource_show` from CKAN will trigger a `package_show`,
+            #   and we're not interested in evaluating the restriction of all the resources.
+            #   We can't outright omit_resources as `resource_show` does a check to see if the `resource_id` is in the
+            #   fetched package's `resources` list.
+            dict(context, return_type="dict", lite_resources=True), {"id": resource_id}
+        )
+    except toolkit.NotAuthorized as e:
+        # NM: you don't need to manually call the check auth function... resource_show will do that for you!
+        #   we still want to return the same format of result that it would have done though.
+        return {
+            'success': False,
+            'msg': e.message
+        }
 
-    return check_user_resource_access(user_name, resource_dict, package_dict)
+    return {'success': True}
 
 
 # TODO: NM: I think I can ditch this function... perhaps I can use the read schema, or IResourceController to
@@ -283,6 +292,7 @@ def _restricted_resource_list_hide_fields(context, resource_list, owning_package
     Of course, there's nothing that says the resources can come from a mixed set of packages, but there is an
     improvement for that too (see below)
     """
+    log.debug(f"start function _restricted_resource_list_hide_fields from {inspect.currentframe().f_back.f_code.co_name}")
     _up = {"url": "redacted", "restricted": "redacted"}
 
     _copied_context = dict(context)
