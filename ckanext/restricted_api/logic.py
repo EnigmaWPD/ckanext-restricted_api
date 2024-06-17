@@ -165,7 +165,10 @@ def restricted_package_show(original_action, context, data_dict):
                     'package_id': res['package_id'],
                     'mimetype': res['mimetype'],
                     'name': res['name'],
-                    'state': res['state']
+                    'state': res['state'],
+                    # Including these is still useful
+                    'restricted_level': res.get('restricted_level', None),
+                    'restricted_allowed_users': res.get('restricted_allowed_users', [])
                 }
                 for res in restricted_package_metadata.get("resources", [])
             ]
@@ -328,7 +331,9 @@ def restricted_request_access(
         context,  #: Context,
         data_dict,  #: DataDict,
 ):
-    """Send access request email to resource admin/maintainer."""
+    """Send access request email to resource admin/maintainer.
+    TODO: NM: You probs want this to catch the case where the user already has access to the resource
+    """
     log.debug(f"start function restricted_request_access, params: {data_dict}")
 
     # Check if parameters are present
@@ -338,6 +343,7 @@ def restricted_request_access(
     # Get current user (for authentication only)
     user_id = get_user_id_from_context(context)
 
+    # NM: why do you even need the user to supply this?
     package_id = data_dict.get("package_id")
     # Get package associated with resource
     try:
